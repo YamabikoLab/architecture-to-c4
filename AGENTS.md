@@ -1,4 +1,4 @@
-# WP Japanese Translation Checker repository instructions
+# architecture to c4 repository instructions
 
 These instructions apply to the entire repository.
 
