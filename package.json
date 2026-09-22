@@ -15,7 +15,7 @@
 	},
 	"devDependencies": {
 		"@types/node": "20.17.10",
-		"markdown-it": "12.3.2",
+		"markdown-it": "14.3.2",
 		"typescript": "^6.0.3"
 	}
 }
