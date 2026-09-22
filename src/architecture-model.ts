@@ -1,0 +1,392 @@
+import MarkdownIt, { type Token } from 'markdown-it';
+
+export const externalContextTypes = [
+	'External System',
+	'External Block',
+	'External Capability',
+	'External Environment',
+	'External Library',
+] as const;
+
+export type ExternalContext = {
+	id: string;
+	name: string;
+	type: string;
+	summary: string;
+};
+
+export type Responsibility = {
+	id: string;
+	name: string;
+	summary: string;
+};
+
+export type ArchitectureBoundary = {
+	id: string;
+	name: string;
+	includes: string[];
+};
+
+export type ArchitectureDependency = {
+	dependent: string;
+	dependsOn: string;
+	reason: string;
+};
+
+export type DependencyView = {
+	id: string;
+	name: string;
+	includes: string[];
+};
+
+export type ProcessFlowViewKind = 'normal' | 'failure-recovery';
+export type ProcessFlowEdgeKind = 'normal' | 'failure' | 'recovery';
+
+export type ProcessFlowEdge = {
+	from: string;
+	to: string;
+	kind: ProcessFlowEdgeKind;
+	meaning: string;
+};
+
+export type ProcessFlowView = {
+	id: string;
+	name: string;
+	kind: ProcessFlowViewKind;
+	edges: ProcessFlowEdge[];
+};
+
+type ResponsibilityDetail = {
+	id: string | null;
+	name: string;
+};
+
+type RuntimeStep = {
+	step: number;
+	source: string;
+	target: string;
+	interaction: string;
+};
+
+export type RuntimeView = {
+	id: string;
+	name: string;
+	steps: RuntimeStep[];
+};
+
+export type ArchitectureMetadata = {
+	title: string;
+};
+
+export type ArchitectureModel = {
+	metadata?: ArchitectureMetadata;
+	externalContexts: ExternalContext[];
+	responsibilities: Responsibility[];
+	boundaries: ArchitectureBoundary[];
+	dependencies: ArchitectureDependency[];
+	dependencyViews: DependencyView[];
+	processFlowViews: ProcessFlowView[];
+	responsibilityDetails: ResponsibilityDetail[];
+	runtimeViews: RuntimeView[];
+};
+
+type ParsedHeading = {
+	title: string;
+	id: string | null;
+	kind: string | null;
+};
+
+type ParsedTable = {
+	header: string[];
+	bodyRows: string[][];
+	endIndex: number;
+};
+
+const markdown = new MarkdownIt();
+const headingIdPattern = /^(.*?)\s+\{#([A-Za-z][A-Za-z0-9_]*)\}\s*$/u;
+const processFlowHeadingPattern =
+	/^(.*?)\s+\{#([A-Za-z][A-Za-z0-9_]*)\s+kind=([A-Za-z][A-Za-z0-9_-]*)\}\s*$/u;
+
+const machineReadableTables = {
+	externalContext: [ 'ID', 'Name', 'Type', 'Summary' ],
+	processFlow: [ 'From', 'To', 'Kind', 'Meaning' ],
+	responsibilityInventory: [ 'ID', 'Responsibility', 'Summary' ],
+	ownershipBoundaries: [ 'ID', 'Name', 'Includes' ],
+	dependencies: [ 'Dependent', 'Depends on', 'Reason' ],
+	dependencyViews: [ 'ID', 'Name', 'Includes' ],
+	runtime: [ 'Step', 'Source', 'Target', 'Interaction' ],
+} as const;
+
+const inlineText = ( token: Token ): string => {
+	if ( token.children === null || token.children === undefined ) {
+		return token.content.trim();
+	}
+
+	return token.children
+		.map( ( child ) => {
+			if ( child.type === 'softbreak' || child.type === 'hardbreak' ) {
+				return ' ';
+			}
+
+			return child.content;
+		} )
+		.join( '' )
+		.trim();
+};
+
+const parseHeading = ( inlineToken: Token ): ParsedHeading => {
+	const text = inlineText( inlineToken );
+	const processFlowMatch = text.match( processFlowHeadingPattern );
+
+	if ( processFlowMatch !== null ) {
+		return {
+			title: processFlowMatch[ 1 ].trim(),
+			id: processFlowMatch[ 2 ],
+			kind: processFlowMatch[ 3 ],
+		};
+	}
+
+	const match = text.match( headingIdPattern );
+	if ( match === null ) {
+		return { title: text, id: null, kind: null };
+	}
+
+	return {
+		title: match[ 1 ].trim(),
+		id: match[ 2 ],
+		kind: null,
+	};
+};
+
+const parseTable = ( tokens: Token[], tableStartIndex: number ): ParsedTable => {
+	const rows: string[][] = [];
+	let currentRow: string[] | null = null;
+	let currentCell: string | null = null;
+	let index = tableStartIndex + 1;
+
+	for ( ; index < tokens.length; index++ ) {
+		const token = tokens[ index ];
+
+		if ( token.type === 'table_close' ) {
+			break;
+		}
+
+		if ( token.type === 'tr_open' ) {
+			currentRow = [];
+			continue;
+		}
+
+		if ( token.type === 'tr_close' ) {
+			if ( currentRow !== null ) {
+				rows.push( currentRow );
+			}
+			currentRow = null;
+			continue;
+		}
+
+		if ( token.type === 'th_open' || token.type === 'td_open' ) {
+			currentCell = '';
+			continue;
+		}
+
+		if ( token.type === 'inline' && currentCell !== null ) {
+			currentCell += inlineText( token );
+			continue;
+		}
+
+		if ( token.type === 'th_close' || token.type === 'td_close' ) {
+			if ( currentRow !== null && currentCell !== null ) {
+				currentRow.push( currentCell.trim() );
+			}
+			currentCell = null;
+		}
+	}
+
+	const [ header = [], ...bodyRows ] = rows;
+	return { header, bodyRows, endIndex: index };
+};
+
+const hasExactHeader = ( table: ParsedTable, expectedHeader: readonly string[] ): boolean => {
+	const sameLength = table.header.length === expectedHeader.length;
+	const sameColumns = table.header.every( ( column, index ) => column === expectedHeader[ index ] );
+	return sameLength && sameColumns;
+};
+
+const rowsAsRecords = ( table: ParsedTable ): Array< Record< string, string > > =>
+	table.bodyRows.map( ( row ) =>
+		Object.fromEntries( table.header.map( ( column, index ) => [ column, row[ index ] ?? '' ] ) )
+	);
+
+/**
+ * 固定された機械可読 Markdown から、Structurizr 生成に必要な設計情報だけを抽出する。
+ * 説明文や責務詳細本文は設計情報として解釈せず、定義済みの見出しと表だけを入力とする。
+ *
+ * @param source Architecture Markdown 全体。
+ * @return Architecture Model。
+ */
+export const parseArchitectureMarkdown = ( source: string ): ArchitectureModel => {
+	const tokens = markdown.parse( source, {} );
+	const headings = new Map< number, ParsedHeading >();
+	const model: ArchitectureModel = {
+		metadata: { title: '' },
+		externalContexts: [],
+		responsibilities: [],
+		boundaries: [],
+		dependencies: [],
+		dependencyViews: [],
+		processFlowViews: [],
+		responsibilityDetails: [],
+		runtimeViews: [],
+	};
+
+	for ( let index = 0; index < tokens.length; index++ ) {
+		const token = tokens[ index ];
+
+		if ( token.type === 'heading_open' ) {
+			const level = Number.parseInt( token.tag.slice( 1 ), 10 );
+			const heading = parseHeading( tokens[ index + 1 ] );
+			headings.set( level, heading );
+
+			for ( let deeperLevel = level + 1; deeperLevel <= 6; deeperLevel++ ) {
+				headings.delete( deeperLevel );
+			}
+
+			if ( level === 1 ) {
+				model.metadata = { title: heading.title };
+			}
+
+			const buildingBlockSection = headings.get( 2 )?.title === '5. Building Block View';
+			const responsibilityDetailsSection = headings.get( 3 )?.title === 'Responsibility Details';
+			const isResponsibilityDetail =
+				level === 4 && buildingBlockSection && responsibilityDetailsSection;
+
+			if ( isResponsibilityDetail ) {
+				model.responsibilityDetails.push( {
+					id: heading.id,
+					name: heading.title,
+				} );
+			}
+			continue;
+		}
+
+		if ( token.type !== 'table_open' ) {
+			continue;
+		}
+
+		const table = parseTable( tokens, index );
+		index = table.endIndex;
+		const level2 = headings.get( 2 )?.title;
+		const level3 = headings.get( 3 );
+		const level4 = headings.get( 4 );
+
+		if (
+			level2 === '3. Context and Scope' &&
+			level3?.title === 'External Context' &&
+			hasExactHeader( table, machineReadableTables.externalContext )
+		) {
+			model.externalContexts = rowsAsRecords( table ).map( ( row ) => ( {
+				id: row.ID,
+				name: row.Name,
+				type: row.Type,
+				summary: row.Summary,
+			} ) );
+			continue;
+		}
+
+		if (
+			level2 === '4. Solution Strategy' &&
+			level3?.title === 'Process Flow Views' &&
+			level4?.id !== null &&
+			level4?.id !== undefined &&
+			level4.kind !== null &&
+			hasExactHeader( table, machineReadableTables.processFlow )
+		) {
+			model.processFlowViews.push( {
+				id: level4.id,
+				name: level4.title,
+				kind: level4.kind as ProcessFlowViewKind,
+				edges: rowsAsRecords( table ).map( ( row ) => ( {
+					from: row.From,
+					to: row.To,
+					kind: row.Kind as ProcessFlowEdgeKind,
+					meaning: row.Meaning,
+				} ) ),
+			} );
+			continue;
+		}
+
+		if (
+			level2 === '5. Building Block View' &&
+			level3?.title === 'Responsibility Inventory' &&
+			hasExactHeader( table, machineReadableTables.responsibilityInventory )
+		) {
+			model.responsibilities = rowsAsRecords( table ).map( ( row ) => ( {
+				id: row.ID,
+				name: row.Responsibility,
+				summary: row.Summary,
+			} ) );
+			continue;
+		}
+
+		if (
+			level2 === '5. Building Block View' &&
+			level3?.title === 'Ownership Boundaries' &&
+			hasExactHeader( table, machineReadableTables.ownershipBoundaries )
+		) {
+			model.boundaries = rowsAsRecords( table ).map( ( row ) => ( {
+				id: row.ID,
+				name: row.Name,
+				includes: row.Includes.split( /\s+/u ).filter( ( id ) => id.length > 0 ),
+			} ) );
+			continue;
+		}
+
+		if (
+			level2 === '5. Building Block View' &&
+			level3?.title === 'Dependencies' &&
+			hasExactHeader( table, machineReadableTables.dependencies )
+		) {
+			model.dependencies = rowsAsRecords( table ).map( ( row ) => ( {
+				dependent: row.Dependent,
+				dependsOn: row[ 'Depends on' ],
+				reason: row.Reason,
+			} ) );
+			continue;
+		}
+
+		if (
+			level2 === '5. Building Block View' &&
+			level3?.title === 'Dependency Views' &&
+			hasExactHeader( table, machineReadableTables.dependencyViews )
+		) {
+			model.dependencyViews = rowsAsRecords( table ).map( ( row ) => ( {
+				id: row.ID,
+				name: row.Name,
+				includes: row.Includes.split( /\s+/u ).filter( ( id ) => id.length > 0 ),
+			} ) );
+			continue;
+		}
+
+		if (
+			level2 === '6. Runtime View' &&
+			level3?.id !== null &&
+			level3?.id !== undefined &&
+			hasExactHeader( table, machineReadableTables.runtime )
+		) {
+			model.runtimeViews.push( {
+				id: level3.id,
+				name: level3.title,
+				steps: rowsAsRecords( table )
+					.map( ( row ) => ( {
+						step: Number.parseInt( row.Step, 10 ),
+						source: row.Source,
+						target: row.Target,
+						interaction: row.Interaction,
+					} ) )
+					.sort( ( first, second ) => first.step - second.step ),
+			} );
+		}
+	}
+
+	return model;
+};
