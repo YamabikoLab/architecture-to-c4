@@ -10,8 +10,7 @@ These instructions apply to the entire repository.
 
 ## Repository boundaries
 
-* `src/` contains the implementation of the architecture parser, model, validation, generation, and CLI responsibilities.
-* `docs/development/` contains durable repository-wide development principles and validation guidance.
+* Use `src/` as the implementation root for the architecture parser, model, validation, generation, and CLI responsibilities.
 * Tests and fixtures should stay close to the responsibility they validate unless a concrete cross-cutting test responsibility requires otherwise.
 * Add new directories, layers, or abstractions only when a concrete responsibility requires them. Do not create placeholder structure for anticipated features.
 
@@ -22,13 +21,9 @@ These instructions apply to the entire repository.
   `Architecture Markdown → Parser → Architecture Model → Validation → Output Generator`
 
 * Keep parsing, architecture semantics, validation, output generation, and CLI concerns separated where they have distinct responsibilities.
-
 * The Architecture Model is the boundary between input parsing and output-specific generation.
-
 * Do not leak Structurizr-specific concepts into generic parsing or architecture-model responsibilities unless they are genuinely part of the repository's supported architecture semantics.
-
 * Do not introduce a generalized backend framework solely for hypothetical future output formats.
-
 * Prefer explicit, deterministic transformations over hidden inference or environment-dependent behavior.
 
 ## Input and output behavior
@@ -42,10 +37,9 @@ These instructions apply to the entire repository.
 
 ## Development documentation
 
-* Read `docs/development/foundation.md` for repository-wide development principles.
-* Read `docs/development/testing.md` before selecting validation commands.
 * Keep documentation aligned with the code, commands, dependencies, and directories that exist on the current branch.
 * Do not preserve documentation inherited from another repository when its assumptions no longer apply here.
+* Do not add documentation hierarchy or placeholder files solely to satisfy references that do not reflect current repository responsibilities.
 
 ## Communication
 
@@ -92,15 +86,16 @@ These instructions apply to the entire repository.
 ## Documentation responsibilities
 
 * Put direct working instructions in `AGENTS.md` files.
-* Put durable repository-wide development principles and rationale in `docs/development/`.
 * Update relevant documentation when a command, directory boundary, dependency, input contract, output contract, or development rule changes.
-* Avoid duplicating validation command lists. Use `docs/development/testing.md` as the source of truth.
+* Add a separate durable development document only when a concrete documentation responsibility requires it.
+* Avoid duplicating validation command lists once repository scripts or CI define the applicable commands.
 
 ## Validation
 
-* Run only checks applicable to the changed files, as documented in `docs/development/testing.md`.
+* Run only checks applicable to the changed files.
+* Use the repository's existing scripts, configuration, and CI as the source for concrete validation commands once they exist.
 * For transformation logic, validate both successful generation and relevant failure behavior.
-* When generated Structurizr DSL is affected, run the documented Structurizr validation when applicable.
+* When generated Structurizr DSL is affected, run Structurizr validation when applicable.
 * Documentation-only changes do not require implementation builds or linters unless code or configuration also changes.
 * Never report a command as successful unless it actually ran successfully.
 
